@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>YIG Dashboard - Login</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="login-wrap">
+    <form class="login-card" id="login-form">
+      <h1>YIG Dashboard</h1>
+      <p class="muted">Enter the lab password to continue.</p>
+      <div class="row">
+        <input type="password" id="pw" name="password" autofocus required />
+      </div>
+      <div class="row">
+        <button type="submit">Sign in</button>
+      </div>
+      <div class="err" id="err"></div>
+    </form>
+  </div>
+  <script>
+    document.getElementById("login-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const pw = document.getElementById("pw").value;
+      const err = document.getElementById("err");
+      err.textContent = "";
+      try {
+        const r = await fetch("/login", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ password: pw }),
+          credentials: "same-origin",
+        });
+        if (r.ok) {
+          window.location.href = "/";
+          return;
+        }
+        if (r.status === 401) {
+          err.textContent = "Wrong password.";
+        } else {
+          err.textContent = `Login failed (${r.status}).`;
+        }
+      } catch (ex) {
+        err.textContent = "Network error.";
+      }
+    });
+  </script>
+</body>
+</html>

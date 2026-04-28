@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>YIG Dashboard</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "lit": "https://esm.sh/lit@3.1.4",
+        "lit/decorators.js": "https://esm.sh/lit@3.1.4/decorators.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <yig-app></yig-app>
+
+  <script type="module">
+    import "/static/lib/store.js";
+    import "/static/lib/api.js";
+    import "/static/lib/ws-client.js";
+    import "/static/lib/plotly-theme.js";
+    import "/static/components/yig-app.js";
+    import "/static/components/yig-header.js";
+    import "/static/components/yig-live-trace.js";
+    import "/static/components/yig-spectrogram.js";
+    import "/static/components/yig-peak-track.js";
+    import "/static/components/yig-peak-power.js";
+    import "/static/components/yig-stats.js";
+    import "/static/components/yig-history-browser.js";
+  </script>
+</body>
+</html>
