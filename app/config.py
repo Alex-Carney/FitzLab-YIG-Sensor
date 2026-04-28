@@ -5,8 +5,6 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from dotenv import load_dotenv
-
 
 @dataclass(frozen=True)
 class Settings:
@@ -26,8 +24,6 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        load_dotenv(override=False)
-
         password = os.environ.get("YIG_DASHBOARD_PASSWORD")
         if not password:
             raise RuntimeError("YIG_DASHBOARD_PASSWORD is required")

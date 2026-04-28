@@ -1,0 +1,21 @@
+# Cloudflare Tunnel config (example).
+#
+# Setup steps (one-time, on the lab PC):
+#   1. cloudflared tunnel login
+#   2. cloudflared tunnel create yig-dashboard
+#      (this writes credentials to ~/.cloudflared/<UUID>.json)
+#   3. cloudflared tunnel route dns yig-dashboard yig.yourdomain.com
+#   4. Copy this file to ~/.cloudflared/config.yml and fill in <UUID> + hostname.
+#   5. Run as a Windows service:
+#      cloudflared service install
+#
+# Verify with:
+#   cloudflared tunnel info yig-dashboard
+
+tunnel: <UUID-FROM-STEP-2>
+credentials-file: C:\Users\<you>\.cloudflared\<UUID-FROM-STEP-2>.json
+
+ingress:
+  - hostname: yig.yourdomain.com
+    service: http://127.0.0.1:8000
+  - service: http_status:404

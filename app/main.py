@@ -6,6 +6,7 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -29,6 +30,7 @@ def _configure_logging(level: str) -> None:
 
 
 def build_app() -> FastAPI:
+    load_dotenv(override=False)
     settings = Settings.from_env()
     _configure_logging(settings.log_level)
     logger = logging.getLogger("yig.main")
