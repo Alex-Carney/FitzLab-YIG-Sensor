@@ -9,6 +9,7 @@ dependencies = [
     "numpy>=1.26",
     "python-dotenv>=1.0",
     "pydantic>=2.0",
+    "qcodes>=0.57.0",
 ]
 
 [project.optional-dependencies]
