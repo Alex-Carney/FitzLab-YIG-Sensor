@@ -1,8 +1,13 @@
+import gc
 import time
 import datetime
 import sqlite3
 import numpy as np
 from qcodes.instrument_drivers.signal_hound import SignalHoundUSBSA124B
+try:
+    from qcodes import Instrument
+except ImportError:
+    from qcodes.instrument.base import Instrument
 
 
 sqlite3.register_adapter(datetime.datetime, lambda d: d.isoformat(sep=" "))
@@ -34,6 +39,14 @@ PEAK_SNR_MIN_DB = 6.0
 DB_PATH    = "spectrum_data_ovn.sqlite"
 TABLE_NAME = "spectra"
 
+# SA USB-comms is flaky (saUSBCommErr at random). Recovery: completely
+# destroy the SA object and re-instantiate. No physical USB intervention
+# needed; the device is fine, the driver state isn't.
+MAX_RECONNECT_ATTEMPTS         = 10
+RECONNECT_BACKOFF_INITIAL_SEC  = 1.0
+RECONNECT_BACKOFF_MAX_SEC      = 30.0
+RECONNECT_SETTLE_SEC           = 2.0   # let USB settle before re-creating
+
 # Verify on the first trace that SA's frequency axis matches
 # linspace(center - span/2, center + span/2, n_points).
 # If yes, we can safely reconstruct freqs on read instead of storing them.
@@ -60,6 +73,71 @@ def retune(sh, new_center, span, rbw, vbw, avg):
     sh.vbw(vbw)
     sh.configure()
     sh.avg(avg)
+
+
+def teardown_sa(sh):
+    """Best-effort destroy. The SA object MUST be fully gone before reconnect:
+    leftover references trigger the SignalHound 'already exists' error and
+    leak the USB handle.
+    """
+    if sh is None:
+        return
+    try:
+        sh.close()
+    except Exception as e:
+        print(f"  (sh.close raised {type(e).__name__}: {e}; ignoring)")
+    # Belt-and-suspenders: clear any QCoDeS-registry remnant in case .close()
+    # raised before completing remove_instance().
+    try:
+        Instrument.close_all()
+    except Exception as e:
+        print(f"  (Instrument.close_all raised {type(e).__name__}: {e}; ignoring)")
+    del sh
+    gc.collect()
+
+
+def reconnect_sa(center_freq, span, rbw, vbw, avg):
+    """Recreate the SA, retrying with exponential backoff."""
+    delay = RECONNECT_BACKOFF_INITIAL_SEC
+    last_err = None
+    for attempt in range(1, MAX_RECONNECT_ATTEMPTS + 1):
+        try:
+            sh = setup_spectrum_analyzer(center_freq, span, rbw, vbw, avg)
+            print(f"  SA reconnected on attempt {attempt}")
+            return sh
+        except Exception as e:
+            last_err = e
+            print(f"  SA reconnect attempt {attempt}/{MAX_RECONNECT_ATTEMPTS} "
+                  f"failed: {type(e).__name__}: {e}")
+            time.sleep(delay)
+            delay = min(delay * 2, RECONNECT_BACKOFF_MAX_SEC)
+    raise RuntimeError(
+        f"SA reconnect failed after {MAX_RECONNECT_ATTEMPTS} attempts: {last_err}"
+    )
+
+
+def acquire_or_recover(sh, center_freq, span, rbw, vbw, avg):
+    """Get one (powers, freqs) pair from the SA. On any error, fully
+    tear down and reinstantiate the SA, then retry once.
+
+    Returns (sh, powers, freqs, recovered_bool). The returned `sh` may be
+    a different object than the input if recovery happened - callers MUST
+    rebind. Raises only if reconnect itself fails repeatedly, or the
+    post-reconnect acquire still raises.
+    """
+    try:
+        powers = np.asarray(sh.trace())
+        freqs  = np.asarray(sh.frequency_axis())
+        return sh, powers, freqs, False
+    except Exception as e:
+        print(f"  SA acquire failed ({type(e).__name__}: {e}); "
+              f"tearing down and reconnecting")
+        teardown_sa(sh)
+        time.sleep(RECONNECT_SETTLE_SEC)
+        sh = reconnect_sa(center_freq, span, rbw, vbw, avg)
+        powers = np.asarray(sh.trace())
+        freqs  = np.asarray(sh.frequency_axis())
+        return sh, powers, freqs, True
 
 
 def init_db(db_path, table_name):
@@ -147,6 +225,7 @@ def main():
     freq_axis_verified = False
     n                  = 0
     slow_loop_count    = 0
+    n_recoveries       = 0
 
     try:
         while True:
@@ -158,8 +237,20 @@ def main():
 
             loop_start = time.time()
 
-            powers = np.asarray(sh.trace())
-            freqs  = np.asarray(sh.frequency_axis())
+            try:
+                sh, powers, freqs, recovered = acquire_or_recover(
+                    sh, current_center, SPAN, RBW, VBW, AVERAGES
+                )
+                if recovered:
+                    n_recoveries += 1
+                    # SA was rebuilt; the freq-axis sanity check is worth
+                    # redoing in case of any driver-state weirdness.
+                    freq_axis_verified = False
+            except Exception as e:
+                print(f"  FATAL: SA unrecoverable ({type(e).__name__}: {e}); "
+                      f"sleeping {SAMPLE_INTERVAL_SEC}s and retrying loop")
+                time.sleep(SAMPLE_INTERVAL_SEC)
+                continue
             t_now  = datetime.datetime.now()
 
             # One-time sanity check that the SA's freq axis matches the
@@ -205,8 +296,24 @@ def main():
                 new_center = peak_freq
                 print(f"  -> RETUNING to {new_center/1e9:.6f} GHz "
                       f"(drift {offset/1e6:+.3f} MHz)")
-                retune(sh, new_center, SPAN, RBW, VBW, AVERAGES)
-                current_center = new_center
+                try:
+                    retune(sh, new_center, SPAN, RBW, VBW, AVERAGES)
+                    current_center = new_center
+                except Exception as e:
+                    # Retune talks to the SA too; same flakiness applies.
+                    # On failure, tear down and reconnect at the new center
+                    # so the next loop iteration starts clean.
+                    print(f"  retune failed ({type(e).__name__}: {e}); "
+                          f"reinitialising SA at {new_center/1e9:.6f} GHz")
+                    teardown_sa(sh)
+                    time.sleep(RECONNECT_SETTLE_SEC)
+                    try:
+                        sh = reconnect_sa(new_center, SPAN, RBW, VBW, AVERAGES)
+                        current_center = new_center
+                        n_recoveries += 1
+                    except Exception as e2:
+                        print(f"  reconnect after retune failure also failed "
+                              f"({type(e2).__name__}: {e2}); will retry next loop")
 
             loop_elapsed = time.time() - loop_start
             remaining    = SAMPLE_INTERVAL_SEC - loop_elapsed
@@ -226,6 +333,8 @@ def main():
         if slow_loop_count > 0:
             print(f"{slow_loop_count} loop(s) exceeded "
                   f"{SAMPLE_INTERVAL_SEC}s interval")
+        if n_recoveries > 0:
+            print(f"{n_recoveries} SA reconnection(s) during run")
         try:
             sh.close()
         except Exception as e:
