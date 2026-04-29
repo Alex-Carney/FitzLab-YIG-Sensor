@@ -13,13 +13,13 @@ sqlite3.register_converter(
 # ============================================================
 # CONFIG
 # ============================================================
-INITIAL_CENTER_FREQ = 6.46335e9    # Hz
-SPAN                = 5e6          # Hz
+INITIAL_CENTER_FREQ = 5.723982e9    # Hz
+SPAN                = 15e6          # Hz
 RBW                 = 30e3         # Hz
 VBW                 = 30e3         # Hz
-AVERAGES            = 5
+AVERAGES            = 4
 
-SAMPLE_INTERVAL_SEC = 1            # cadence between traces
+SAMPLE_INTERVAL_SEC = 5            # cadence between traces
 
 # Total runtime. Set to None to run forever (until Ctrl-C).
 TOTAL_DURATION_SEC  = 60 * 60 * 24   # 24 hours
