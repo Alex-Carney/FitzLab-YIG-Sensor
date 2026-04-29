@@ -1,9 +1,9 @@
 """Standalone E2E smoke test (not part of pytest).
 
 Verifies a running uvicorn dev server: login + REST endpoints + WS handshake.
-Does NOT attempt to write a row from this process - the API holds a read-only
-DuckDB connection which on Windows still locks the file against concurrent
-writers (matches the production constraint where the tracker owns writes).
+Doesn't write a row from this process - keeps the smoke test cheap and
+process-free of side effects. (SQLite WAL would allow it; if you want a
+live-broadcast E2E, add it as a separate test.)
 
 Run while uvicorn is already up:
     uv run python tests/e2e_smoke.py

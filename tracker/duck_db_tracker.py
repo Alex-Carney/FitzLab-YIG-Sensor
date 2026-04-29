@@ -1,8 +1,14 @@
 import time
 import datetime
+import sqlite3
 import numpy as np
-import duckdb
 from qcodes.instrument_drivers.signal_hound import SignalHoundUSBSA124B
+
+
+sqlite3.register_adapter(datetime.datetime, lambda d: d.isoformat(sep=" "))
+sqlite3.register_converter(
+    "TIMESTAMP", lambda b: datetime.datetime.fromisoformat(b.decode("utf-8"))
+)
 
 # ============================================================
 # CONFIG
@@ -25,7 +31,7 @@ RETUNE_THRESHOLD_FRAC = 0.5
 # above the median of the trace.
 PEAK_SNR_MIN_DB = 6.0
 
-DB_PATH    = "spectrum_data_ovn.duckdb"
+DB_PATH    = "spectrum_data_ovn.sqlite"
 TABLE_NAME = "spectra"
 
 # Verify on the first trace that SA's frequency axis matches
@@ -57,26 +63,34 @@ def retune(sh, new_center, span, rbw, vbw, avg):
 
 
 def init_db(db_path, table_name):
-    conn = duckdb.connect(db_path)
+    conn = sqlite3.connect(db_path, detect_types=sqlite3.PARSE_DECLTYPES)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute(f"""
         CREATE TABLE IF NOT EXISTS {table_name} (
             time_created TIMESTAMP,
-            center_freq  DOUBLE,
-            span         DOUBLE,
-            rbw          DOUBLE,
+            center_freq  REAL,
+            span         REAL,
+            rbw          REAL,
             n_points     INTEGER,
-            powers       FLOAT[]
+            powers       BLOB
         )
     """)
+    conn.execute(
+        f"CREATE INDEX IF NOT EXISTS idx_{table_name}_time "
+        f"ON {table_name}(time_created)"
+    )
+    conn.commit()
     return conn
 
 
 def insert_trace(conn, table_name, t, center_freq, span, rbw, n_points, powers):
     conn.execute(
         f"INSERT INTO {table_name} VALUES (?, ?, ?, ?, ?, ?)",
-        [t, center_freq, span, rbw, n_points,
-         powers.astype(np.float32).tolist()],
+        (t, center_freq, span, rbw, n_points,
+         powers.astype("<f4").tobytes()),
     )
+    conn.commit()
 
 
 def verify_frequency_axis(freqs, center_freq, span, tol_hz):

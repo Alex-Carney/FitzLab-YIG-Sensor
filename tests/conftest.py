@@ -2,11 +2,17 @@
 from __future__ import annotations
 
 import datetime as dt
+import sqlite3
 from pathlib import Path
 
-import duckdb
 import numpy as np
 import pytest
+
+
+sqlite3.register_adapter(dt.datetime, lambda d: d.isoformat(sep=" "))
+sqlite3.register_converter(
+    "TIMESTAMP", lambda b: dt.datetime.fromisoformat(b.decode("utf-8"))
+)
 
 
 N_POINTS = 201
@@ -31,17 +37,19 @@ def _synth_trace(center: float, peak_offset: float, rng: np.random.Generator) ->
 
 
 def _populate(db_path: Path, n_rows: int = 600, cadence_sec: float = 1.0) -> None:
-    """Synthetic YIG run: drift + retunes. Uses bulk INSERT for speed."""
-    conn = duckdb.connect(str(db_path))
+    """Synthetic YIG run: drift + retunes. Bulk-inserts via sqlite3."""
+    conn = sqlite3.connect(str(db_path), detect_types=sqlite3.PARSE_DECLTYPES)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute(
         """
         CREATE TABLE spectra (
             time_created TIMESTAMP,
-            center_freq  DOUBLE,
-            span         DOUBLE,
-            rbw          DOUBLE,
+            center_freq  REAL,
+            span         REAL,
+            rbw          REAL,
             n_points     INTEGER,
-            powers       FLOAT[]
+            powers       BLOB
         )
         """
     )
@@ -64,24 +72,22 @@ def _populate(db_path: Path, n_rows: int = 600, cadence_sec: float = 1.0) -> Non
         powers = _synth_trace(center, cumulative_offset, rng)
         rows.append(
             (t, float(center), float(SPAN_HZ), float(RBW_HZ),
-             int(N_POINTS), powers.tolist())
+             int(N_POINTS), powers.astype("<f4").tobytes())
         )
 
-    # Bulk insert via a single transaction.
-    conn.execute("BEGIN")
     conn.executemany(
         "INSERT INTO spectra VALUES (?, ?, ?, ?, ?, ?)",
         rows,
     )
-    conn.execute("COMMIT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_spectra_time ON spectra(time_created)")
+    conn.commit()
     conn.close()
 
 
 @pytest.fixture(scope="session")
 def synth_db_path(tmp_path_factory) -> Path:
     """Read-only fixture DB shared across tests."""
-    path = tmp_path_factory.mktemp("yig") / "synth.duckdb"
+    path = tmp_path_factory.mktemp("yig") / "synth.sqlite"
     _populate(path, n_rows=600, cadence_sec=1.0)
     return path
 
@@ -89,6 +95,6 @@ def synth_db_path(tmp_path_factory) -> Path:
 @pytest.fixture
 def writable_db_path(tmp_path) -> Path:
     """A writable, isolated DB used by watcher tests that need to insert rows."""
-    path = tmp_path / "writable.duckdb"
+    path = tmp_path / "writable.sqlite"
     _populate(path, n_rows=10, cadence_sec=1.0)
     return path

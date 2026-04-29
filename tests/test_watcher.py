@@ -20,9 +20,9 @@ class CapturingWS:
 async def test_watcher_broadcasts_new_rows(writable_db_path):
     """Watcher detects rows newer than last_seen and broadcasts them.
 
-    DuckDB enforces single-process access; we can't open a writer while the
-    watcher holds a reader. Instead we seed last_seen at a point before all
-    fixture rows so the watcher emits them as 'new' on its next poll.
+    We drive the watcher manually rather than spawning a writer task: simpler
+    to reason about, and the broadcast path is what we're testing. (SQLite
+    WAL would also let us insert concurrently, but that's a different test.)
     """
     db = Database(writable_db_path)
     db.connect()

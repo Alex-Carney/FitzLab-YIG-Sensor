@@ -9,6 +9,10 @@ __pycache__/
 .env
 *.duckdb
 *.duckdb.wal
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
 spectrogram.png
 
 # IDE

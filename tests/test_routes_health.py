@@ -19,7 +19,7 @@ async def test_healthz_ok(synth_db_path, monkeypatch):
     assert r.status_code == 200
     body = r.json()
     assert body["ok"] is True
-    assert body["db_path"].endswith("synth.duckdb")
+    assert body["db_path"].endswith("synth.sqlite")
     assert "last_row_age_seconds" in body
     assert "ws_clients" in body
     assert "watcher_running" in body
