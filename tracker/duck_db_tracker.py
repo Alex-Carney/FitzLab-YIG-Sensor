@@ -22,7 +22,7 @@ AVERAGES            = 4
 SAMPLE_INTERVAL_SEC = 5            # cadence between traces
 
 # Total runtime. Set to None to run forever (until Ctrl-C).
-TOTAL_DURATION_SEC  = 60 * 60 * 24   # 24 hours
+TOTAL_DURATION_SEC  = None   # 24 hours
 
 # Retune when |peak - center| exceeds this fraction of (span/2).
 RETUNE_THRESHOLD_FRAC = 0.5
