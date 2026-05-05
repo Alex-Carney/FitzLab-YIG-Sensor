@@ -3,7 +3,7 @@ import { getRange, getPeakTrack } from "/static/lib/api.js";
 import { ws } from "/static/lib/ws-client.js";
 import { store } from "/static/lib/store.js";
 import { plotlyLayout, plotlyConfig } from "/static/lib/plotly-theme.js";
-import { computeAutoFreqRange, SNR_FLOOR_DB } from "/static/lib/auto-zoom.js";
+import { computeAutoFreqRange } from "/static/lib/auto-zoom.js";
 
 const MAX_ROWS = 600;
 
@@ -287,13 +287,6 @@ export class YigSpectrogram extends LitElement {
     const xTimes = this._rows.map((r) => new Date(r.t));
     const yFreqGHz = grid.map((f) => f / 1e9);
 
-    // Overlay: peak_freq line in GHz, null where SNR < floor
-    const overlayX = this._peaks.map((p) => new Date(p.t));
-    const overlayY = this._peaks.map((p) => p.snr >= SNR_FLOOR_DB ? p.peak_freq / 1e9 : null);
-
-    const accent = getComputedStyle(document.documentElement)
-      .getPropertyValue("--c-accent").trim() || "#4ea1ff";
-
     const colorscale = resolveColorscale(store.get("colorscale") || "Inferno");
     const data = [
       {
@@ -302,15 +295,6 @@ export class YigSpectrogram extends LitElement {
         colorscale, hoverongaps: false,
         hovertemplate: "%{x}<br>%{y:.6f} GHz<br>%{z:.2f} dBm<extra></extra>",
         colorbar: { title: { text: "dBm" } },
-      },
-      {
-        type: "scattergl",
-        x: overlayX, y: overlayY,
-        mode: "lines",
-        line: { color: accent, width: 1.5 },
-        connectgaps: false,
-        hovertemplate: "%{x}<br>peak: %{y:.6f} GHz<extra></extra>",
-        showlegend: false,
       },
     ];
 
