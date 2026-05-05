@@ -7,16 +7,18 @@ export class YigApp extends LitElement {
     return html`
       <yig-header></yig-header>
       <yig-banner></yig-banner>
-      <main class="dash-v2">
-        <section class="panel sg">
-          <yig-spectrogram></yig-spectrogram>
-        </section>
-        <section class="panel side">
-          <yig-sidebar></yig-sidebar>
-        </section>
-        <section class="panel live">
-          <yig-live-trace></yig-live-trace>
-        </section>
+      <main>
+        <div class="dash-v2">
+          <section class="panel sg">
+            <yig-spectrogram></yig-spectrogram>
+          </section>
+          <section class="panel side">
+            <yig-sidebar></yig-sidebar>
+          </section>
+          <section class="panel live">
+            <yig-live-trace></yig-live-trace>
+          </section>
+        </div>
         <section class="trends">
           <section class="panel">
             <yig-peak-track></yig-peak-track>
