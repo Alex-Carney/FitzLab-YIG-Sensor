@@ -119,7 +119,7 @@ Modern data-product. Concrete styling rules:
 - **Palette (dark, default).** Bg 0 `#0b0d10`, Bg 1 `#12161a`, Bg 2 `#1a1f25`, border `#232a31`, text 0 `#e8ecf1`, text 1 `#a4adb7`, text 2 `#6b7480`, accent `#4ea1ff`. Same as v1 but text 0 bumped one stop brighter for legibility.
 - **Palette (light).** Bg 0 `#f8f9fb`, Bg 1 `#ffffff`, Bg 2 `#eef1f5`, border `#d8dde3`, text 0 `#15191e`, text 1 `#5a626c`, text 2 `#8a929c`, accent `#2c7fe0`. Same as v1.
 - **Surfaces.** 1 px border, 8 px radius, no shadows in dark mode, subtle 0 1px 2px shadow in light mode.
-- **Spectrogram colorscale.** Viridis stays — works in both modes.
+- **Spectrogram colorscale.** User-selectable via header switcher — Inferno (default), Jet, or Viridis. Inferno is defined explicitly because Plotly.js's CDN build does not ship it as a named scale; Jet and Viridis are built-in. Selection persists in `localStorage` under `yig-colorscale` and is read by `yig-spectrogram` from `store.colorscale` on every redraw.
 - **Peak overlay line.** `--c-accent` (cyan/blue), 1.5 px, no markers. Single solid line, not dashed — overlaid traces should be visually distinct from the heatmap and from any future overlays.
 - **Peak overlay missing-data behavior.** Points with SNR below `SNR_FLOOR_DB` (3 dB) emit `y = null` so Plotly breaks the line there. This visually communicates "we lost the peak in noise" rather than drawing a junk trajectory through noise-floor maxima.
 
@@ -341,6 +341,16 @@ The v2 work happens on the `frontend-v2` branch. When ready:
 3. Squash-merge to `master`.
 
 The `spectrum_data_ovn.sqlite` file is unchanged. The tracker is unchanged. No data migration needed.
+
+## Refinements during implementation
+
+The following deviations from the original spec were made during build and testing. They are recorded here so future readers see what actually shipped, not just what was originally designed.
+
+- **Trends row added below the viewport.** The spec deletes `yig-peak-track` and `yig-peak-power`, intending peak-frequency to live only as a spectrogram overlay + KPI tile. During testing the user requested dedicated time-series plots back. Two new components — `yig-peak-track` (peak frequency vs time) and `yig-snr-track` (SNR vs time) — render in a 2-column row beneath the live-trace strip. The row sits in a separate `.trends` block outside the viewport-sized `.dash-v2` grid; users scroll to see it. The spectrogram retains its original height. Both new components follow v2 patterns (theme refresh on toggle, `uirevision`-based manual-zoom lock, `_gen` counter for stale-fetch cancellation).
+- **Colorscale switcher.** A small `Inferno | Jet | Viridis` button group lives in the header next to the time-range pills. Default is Inferno (replaces the spec's Viridis default). Selection persists via `localStorage`. See updated "Aesthetic" section above.
+- **Sidebar uses flex + scroll, not 4-equal-row grid.** The spec specified `grid-template-rows: repeat(4, 1fr)`. To preserve KPI tile readability when the trends-row addition pushed available height down, the sidebar was switched to `display: flex; flex-direction: column; overflow-y: auto;`. Tiles keep their natural height; the sidebar gets its own scroll if they don't all fit.
+- **`/api/snapshot` seeds `store.latestRow` on initial load.** Without this, KPI tiles stayed at "—" until the first WS tick — i.e., they were empty whenever the tracker wasn't running, even if the DB held data. `yig-live-trace._init()` now publishes the snapshot row to `store.latestRow` and `store.lastRowTs` so the sidebar populates from historical data on cold start.
+- **Live-tick path uses `Plotly.react()` with `uirevision`, not `restyle`/`extendTraces`.** The spec described both paths and recommended starting with `react()`. The `restyle/extendTraces` path was never implemented; `uirevision` alone preserves user manual-zoom across ticks correctly, and current performance is acceptable. If live-tick framerate becomes a bottleneck the `restyle` path is the next move.
 
 ## Open questions resolved during brainstorming
 
