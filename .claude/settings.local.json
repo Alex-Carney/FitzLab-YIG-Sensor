@@ -3,7 +3,10 @@
     "allow": [
       "Bash(git *)",
       "Bash(uv sync *)",
-      "Bash(uv run *)"
+      "Bash(uv run *)",
+      "Bash(python *)",
+      "Bash(gh pr create --base master --head frontend-v2 --title 'Frontend v2: spectrogram-first redesign with auto-zoom, theme fix, and freq clipping' --body ' *)",
+      "PowerShell(Get-ChildItem *)"
     ]
   }
 }
