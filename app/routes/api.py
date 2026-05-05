@@ -70,7 +70,9 @@ async def range_endpoint(
     request: Request,
     t_from: dt.datetime = Query(..., alias="from"),
     t_to: dt.datetime = Query(..., alias="to"),
-    max_rows: int = Query(2000, ge=1),
+    max_rows: int = Query(600, ge=1),
+    freq_min_hz: float | None = Query(None),
+    freq_max_hz: float | None = Query(None),
     session=Depends(_require_session),
 ):
     settings = request.app.state.settings
@@ -81,11 +83,34 @@ async def range_endpoint(
             status_code=400,
             detail=f"window exceeds max {settings.range_max_days} days",
         )
+    if (freq_min_hz is None) != (freq_max_hz is None):
+        raise HTTPException(
+            status_code=400,
+            detail="freq_min_hz and freq_max_hz must be specified together",
+        )
+    if freq_min_hz is not None and freq_max_hz is not None and freq_min_hz >= freq_max_hz:
+        raise HTTPException(status_code=400, detail="freq_min_hz must be < freq_max_hz")
     if max_rows > settings.api_max_rows_hard_cap:
         max_rows = settings.api_max_rows_hard_cap
+
     db = request.app.state.db
-    rows = db.range_rows(t_from, t_to, max_rows=max_rows)
-    return {"rows": [_row_to_trace(r) for r in rows]}
+    rows = db.range_rows(
+        t_from, t_to, max_rows=max_rows,
+        freq_min_hz=freq_min_hz, freq_max_hz=freq_max_hz,
+    )
+    earliest = db.earliest_time()
+    if earliest is None:
+        actual_from_iso = None
+    else:
+        actual_from_iso = max(t_from, earliest).isoformat()
+
+    return {
+        "rows": [_row_to_trace(r) for r in rows],
+        "requested_from": t_from.isoformat(),
+        "actual_from": actual_from_iso,
+        "requested_to": t_to.isoformat(),
+        "actual_to": t_to.isoformat(),
+    }
 
 
 @router.get("/peak-track")

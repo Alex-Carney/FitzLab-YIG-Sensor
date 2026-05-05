@@ -1,3 +1,5 @@
+import datetime as dt
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -111,3 +113,93 @@ async def test_stats_shape(app_with_session):
     assert "seconds_since_last_retune" in body
     assert "traces_in_window" in body
     assert "current_snr_db" in body
+
+
+@pytest.mark.asyncio
+async def test_range_endpoint_envelope_has_actual_from_to(app_with_session):
+    app = app_with_session
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+            await c.post("/login", json={"password": "pw"})
+            r = await c.get("/api/range", params={
+                "from": "2026-04-27T12:00:00",
+                "to":   "2026-04-27T12:00:09",
+            })
+    assert r.status_code == 200
+    body = r.json()
+    for k in ("rows", "requested_from", "requested_to", "actual_from", "actual_to"):
+        assert k in body, f"missing key {k}"
+
+
+@pytest.mark.asyncio
+async def test_range_endpoint_actual_from_clamps_to_earliest(app_with_session):
+    """Requesting a window earlier than data returns actual_from = earliest."""
+    app = app_with_session
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+            await c.post("/login", json={"password": "pw"})
+            r = await c.get("/api/range", params={
+                "from": "2026-04-27T02:00:00",  # 10h before earliest
+                "to":   "2026-04-27T13:00:00",
+            })
+    assert r.status_code == 200
+    body = r.json()
+    assert body["requested_from"].startswith("2026-04-27T02:00:00")
+    assert body["actual_from"].startswith("2026-04-27T12:00:00")
+
+
+@pytest.mark.asyncio
+async def test_range_endpoint_freq_clipping(app_with_session):
+    """freq_min_hz + freq_max_hz clip rows to the freq window."""
+    app = app_with_session
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+            await c.post("/login", json={"password": "pw"})
+            # Synth fixture: center 6.46335e9, span 5e6, n_points 201.
+            # Clip to middle 10% (~500 kHz around center).
+            f_lo = 6.46335e9 - 250_000
+            f_hi = 6.46335e9 + 250_000
+            r = await c.get("/api/range", params={
+                "from": "2026-04-27T12:00:00",
+                "to":   "2026-04-27T12:00:09",
+                "freq_min_hz": str(f_lo),
+                "freq_max_hz": str(f_hi),
+                "max_rows": "10",
+            })
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body["rows"]) > 0
+    for row in body["rows"]:
+        assert row["n_points"] < 201
+        assert len(row["powers"]) == row["n_points"]
+
+
+@pytest.mark.asyncio
+async def test_range_endpoint_only_one_freq_param_is_400(app_with_session):
+    """Specifying freq_min_hz alone is rejected."""
+    app = app_with_session
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+            await c.post("/login", json={"password": "pw"})
+            r = await c.get("/api/range", params={
+                "from": "2026-04-27T12:00:00",
+                "to":   "2026-04-27T12:00:09",
+                "freq_min_hz": "1e9",
+            })
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_range_endpoint_inverted_freq_window_is_400(app_with_session):
+    """freq_min_hz > freq_max_hz is rejected."""
+    app = app_with_session
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+            await c.post("/login", json={"password": "pw"})
+            r = await c.get("/api/range", params={
+                "from": "2026-04-27T12:00:00",
+                "to":   "2026-04-27T12:00:09",
+                "freq_min_hz": "2e9",
+                "freq_max_hz": "1e9",
+            })
+    assert r.status_code == 400
