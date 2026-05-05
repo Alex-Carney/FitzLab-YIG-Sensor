@@ -1,11 +1,11 @@
 import { LitElement, html } from "lit";
-import { getRange } from "/static/lib/api.js";
+import { getRange, getPeakTrack } from "/static/lib/api.js";
 import { ws } from "/static/lib/ws-client.js";
 import { store } from "/static/lib/store.js";
 import { plotlyLayout, plotlyConfig } from "/static/lib/plotly-theme.js";
+import { computeAutoFreqRange, SNR_FLOOR_DB } from "/static/lib/auto-zoom.js";
 
-const PLOT_HEIGHT = 360;
-const MAX_ROWS = 1500;
+const MAX_ROWS = 600;
 
 function freqAxis(trace) {
   const { center_freq, span, n_points } = trace;
@@ -47,21 +47,14 @@ function interp(xq, xs, ys) {
   if (x0 === x1) return y0;
   return y0 + ((xq - x0) / (x1 - x0)) * (y1 - y0);
 }
-
 function lowerBound(arr, target) {
   let lo = 0, hi = arr.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (arr[mid] < target) lo = mid + 1; else hi = mid;
-  }
+  while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m] < target) lo = m + 1; else hi = m; }
   return lo;
 }
 function upperBound(arr, target) {
   let lo = 0, hi = arr.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (arr[mid] <= target) lo = mid + 1; else hi = mid;
-  }
+  while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m] <= target) lo = m + 1; else hi = m; }
   return lo;
 }
 
@@ -101,56 +94,145 @@ function transpose(Z) {
 
 export class YigSpectrogram extends LitElement {
   createRenderRoot() { return this; }
-
-  static properties = {
-    _err: { state: true },
-    _empty: { state: true },
-  };
+  static properties = { _err: { state: true }, _empty: { state: true } };
 
   constructor() {
     super();
-    this._unsubRange = null;
-    this._unsubTrace = null;
     this._rows = [];
+    this._peaks = [];        // [{t, peak_freq, peak_power, snr, center_freq}]
     this._plotEl = null;
+    this._mode = "auto";     // "auto" | "locked"
+    this._uirev = 0;
+    this._raf = null;
+    this._dirty = false;
     this._err = null;
     this._empty = false;
-    this._dirty = false;
-    this._raf = null;
+    this._suppressRelayout = false;  // ignore our own relayout calls
   }
 
   connectedCallback() {
     super.connectedCallback();
-    this._unsubRange = store.subscribe("range", () => this._reload());
+    this._unsubRange = store.subscribe("range", () => this._onRangeChange());
     this._unsubTrace = ws.subscribe("trace", (data) => this._onLiveTrace(data));
+    // Theme change: re-draw so line colors (read from --c-accent at draw
+    // time) update too, not just background/gridline colors.
+    this._unsubTheme = store.subscribe("theme", () => this._draw());
   }
-
   disconnectedCallback() {
     super.disconnectedCallback();
-    if (this._unsubRange) this._unsubRange();
-    if (this._unsubTrace) this._unsubTrace();
+    this._unsubRange?.();
+    this._unsubTrace?.();
+    this._unsubTheme?.();
     if (this._raf) cancelAnimationFrame(this._raf);
+  }
+
+  async _onRangeChange() {
+    // New time range → drop user-locked zoom, re-engage auto, refetch.
+    this._mode = "auto";
+    this._uirev += 1;
+    await this._reload();
   }
 
   async _reload() {
     const range = store.get("range");
     if (!range) return;
     try {
-      const r = await getRange(range.from, range.to, MAX_ROWS);
-      this._rows = r.rows || [];
+      // 1. Compute the auto freq window from peak-track first (full-sweep
+      //    on first fetch since we don't yet know where to clip).
+      const peakResp = await getPeakTrack(range.from, range.to, MAX_ROWS);
+      this._peaks = peakResp.rows || [];
+      const latest = store.get("latestRow");
+      const autoRange = computeAutoFreqRange(this._peaks, latest);
+      store.set("autoFreqRange", autoRange);
+
+      // 2. Fetch range with the freq window applied (if we have one).
+      const opts = autoRange ? { freq_min_hz: autoRange[0], freq_max_hz: autoRange[1] } : {};
+      const rangeResp = await getRange(range.from, range.to, MAX_ROWS, opts);
+      this._rows = rangeResp.rows || [];
       this._empty = this._rows.length === 0;
+      this._maybeBanner(rangeResp);
       this._scheduleDraw();
     } catch (e) {
       this._err = String(e);
     }
   }
 
+  _maybeBanner(resp) {
+    const requested = new Date(resp.requested_from).getTime();
+    if (resp.actual_from === null) {
+      store.set("banner", { type: "info", message: "No data available yet." });
+      return;
+    }
+    const actual = new Date(resp.actual_from).getTime();
+    if (actual - requested > 60_000) {
+      const have = Math.round((new Date(resp.actual_to).getTime() - actual) / 1000);
+      const want = Math.round((new Date(resp.requested_to).getTime() - requested) / 1000);
+      store.set("banner", {
+        type: "info",
+        message: `Showing ${fmtDur(have)} of ${fmtDur(want)} requested. Earliest sample: ${new Date(resp.actual_from).toLocaleTimeString()}.`,
+      });
+    } else {
+      store.set("banner", null);
+    }
+  }
+
   _onLiveTrace(data) {
     const range = store.get("range");
     if (!range || !range.live) return;
-    this._rows.push(data);
-    if (this._rows.length > MAX_ROWS) this._rows.shift();
+    // Append peak entry
+    const f0 = data.center_freq - data.span / 2;
+    let pi = 0;
+    for (let i = 1; i < data.powers.length; i++) {
+      if (data.powers[i] > data.powers[pi]) pi = i;
+    }
+    const peakFreq = f0 + (pi * data.span) / (data.n_points - 1);
+    const peakPower = data.powers[pi];
+    // SNR via median over the *full* sweep (more stable than over the clipped window)
+    const sorted = [...data.powers].sort((a, b) => a - b);
+    const med = sorted[Math.floor(sorted.length / 2)];
+    const snr = peakPower - med;
+    this._peaks.push({
+      t: data.t, peak_freq: peakFreq, peak_power: peakPower, snr,
+      center_freq: data.center_freq,
+    });
+    if (this._peaks.length > MAX_ROWS) this._peaks.shift();
+    // Append row (clip client-side to the current auto range so the heatmap stays consistent)
+    const auto = store.get("autoFreqRange");
+    const clipped = auto ? this._clipRowToAuto(data, auto) : data;
+    if (clipped) {
+      this._rows.push(clipped);
+      if (this._rows.length > MAX_ROWS) this._rows.shift();
+    }
+    // Recompute auto range
+    if (this._mode === "auto") {
+      const newAuto = computeAutoFreqRange(this._peaks, data);
+      store.set("autoFreqRange", newAuto);
+    }
     this._scheduleDraw();
+  }
+
+  _clipRowToAuto(data, auto) {
+    const [lo, hi] = auto;
+    const f0 = data.center_freq - data.span / 2;
+    const df = data.span / (data.n_points - 1);
+    const sweepLo = f0;
+    const sweepHi = f0 + (data.n_points - 1) * df;
+    if (hi < sweepLo || lo > sweepHi) return null;
+    const loIdx = Math.max(0, Math.ceil((lo - f0) / df));
+    const hiIdx = Math.min(data.n_points - 1, Math.floor((hi - f0) / df));
+    if (hiIdx < loIdx) return null;
+    const powers = data.powers.slice(loIdx, hiIdx + 1);
+    const newN = hiIdx - loIdx + 1;
+    const newFLo = f0 + loIdx * df;
+    const newFHi = f0 + hiIdx * df;
+    return {
+      t: data.t,
+      center_freq: (newFLo + newFHi) / 2,
+      span: newFHi - newFLo,
+      rbw: data.rbw,
+      n_points: newN,
+      powers,
+    };
   }
 
   _scheduleDraw() {
@@ -177,29 +259,74 @@ export class YigSpectrogram extends LitElement {
     const xTimes = this._rows.map((r) => new Date(r.t));
     const yFreqGHz = grid.map((f) => f / 1e9);
 
-    const data = [{
-      type: "heatmap",
-      x: xTimes,
-      y: yFreqGHz,
-      z: transpose(Z),
-      colorscale: "Viridis",
-      hoverongaps: false,
-      hovertemplate: "%{x}<br>%{y:.6f} GHz<br>%{z:.2f} dBm<extra></extra>",
-      colorbar: { title: { text: "dBm" } },
-    }];
+    // Overlay: peak_freq line in GHz, null where SNR < floor
+    const overlayX = this._peaks.map((p) => new Date(p.t));
+    const overlayY = this._peaks.map((p) => p.snr >= SNR_FLOOR_DB ? p.peak_freq / 1e9 : null);
+
+    const accent = getComputedStyle(document.documentElement)
+      .getPropertyValue("--c-accent").trim() || "#4ea1ff";
+
+    const data = [
+      {
+        type: "heatmap",
+        x: xTimes, y: yFreqGHz, z: transpose(Z),
+        colorscale: "Viridis", hoverongaps: false,
+        hovertemplate: "%{x}<br>%{y:.6f} GHz<br>%{z:.2f} dBm<extra></extra>",
+        colorbar: { title: { text: "dBm" } },
+      },
+      {
+        type: "scattergl",
+        x: overlayX, y: overlayY,
+        mode: "lines",
+        line: { color: accent, width: 1.5 },
+        connectgaps: false,
+        hovertemplate: "%{x}<br>peak: %{y:.6f} GHz<extra></extra>",
+        showlegend: false,
+      },
+    ];
+
+    const auto = store.get("autoFreqRange");
+    const yRange = (this._mode === "auto" && auto)
+      ? [auto[0] / 1e9, auto[1] / 1e9]
+      : undefined;
+
     const layout = plotlyLayout({
-      height: PLOT_HEIGHT,
       xaxis: { type: "date" },
-      yaxis: { title: { text: "Frequency (GHz)" } },
+      yaxis: {
+        title: { text: "Frequency (GHz)" },
+        range: yRange,
+      },
+      uirevision: this._uirev,
+      autosize: true,
     });
-    Plotly.react(this._plotEl, data, layout, plotlyConfig);
+
+    this._suppressRelayout = true;
+    Plotly.react(this._plotEl, data, layout, plotlyConfig).then(() => {
+      // Bind manual-zoom detection once after first react
+      if (!this._relayoutBound) {
+        this._plotEl.on("plotly_relayout", (ev) => this._onRelayout(ev));
+        this._relayoutBound = true;
+      }
+      this._suppressRelayout = false;
+    });
+  }
+
+  _onRelayout(ev) {
+    if (this._suppressRelayout) return;
+    // User panned/zoomed if the event includes axis range fields.
+    const userZoomed =
+      "yaxis.range[0]" in ev || "yaxis.range[1]" in ev ||
+      "xaxis.range[0]" in ev || "xaxis.range[1]" in ev;
+    if (userZoomed && this._mode === "auto") {
+      this._mode = "locked";
+    }
   }
 
   render() {
     return html`
       ${this._err ? html`<div class="muted">${this._err}</div>` : null}
       ${this._empty ? html`<div class="muted">no data in window</div>` : null}
-      <div id="sg-plot" style="width:100%;height:${PLOT_HEIGHT}px"></div>
+      <div id="sg-plot" style="width:100%;height:100%"></div>
     `;
   }
 
@@ -209,6 +336,13 @@ export class YigSpectrogram extends LitElement {
       if (this._plotEl && this._rows.length > 0) this._draw();
     }
   }
+}
+
+function fmtDur(sec) {
+  if (sec < 60) return `${sec}s`;
+  if (sec < 3600) return `${Math.round(sec/60)}m`;
+  if (sec < 86400) return `${Math.round(sec/3600)}h`;
+  return `${Math.round(sec/86400)}d`;
 }
 
 customElements.define("yig-spectrogram", YigSpectrogram);
