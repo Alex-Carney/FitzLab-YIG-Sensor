@@ -105,6 +105,14 @@ class Database:
         assert self._conn is not None
         return self._conn.execute("SELECT count(*) FROM spectra").fetchone()[0]
 
+    def earliest_time(self) -> Optional[dt.datetime]:
+        """Return the earliest time_created in the table, or None if empty."""
+        assert self._conn is not None
+        row = self._conn.execute(
+            "SELECT time_created FROM spectra ORDER BY time_created ASC LIMIT 1"
+        ).fetchone()
+        return row[0] if row else None
+
     def rows_after(self, after: dt.datetime, limit: int = 200) -> list[dict]:
         """Rows strictly newer than `after`, ascending, capped at `limit`."""
         assert self._conn is not None

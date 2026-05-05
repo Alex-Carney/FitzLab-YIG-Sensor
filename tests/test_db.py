@@ -115,3 +115,37 @@ def test_range_rows_empty_window(synth_db_path):
     rows = db.range_rows(t0, t1, max_rows=100)
     db.close()
     assert rows == []
+
+
+def test_earliest_time_empty_db(tmp_path):
+    """earliest_time returns None when there are no rows."""
+    import sqlite3
+    p = tmp_path / "empty.sqlite"
+    conn = sqlite3.connect(str(p))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute(
+        "CREATE TABLE spectra (time_created TIMESTAMP, center_freq REAL, "
+        "span REAL, rbw REAL, n_points INTEGER, powers BLOB)"
+    )
+    conn.commit()
+    conn.close()
+
+    db = Database(p)
+    db.connect()
+    try:
+        assert db.earliest_time() is None
+    finally:
+        db.close()
+
+
+def test_earliest_time_with_rows(synth_db_path):
+    """earliest_time returns the smallest time_created in the table."""
+    db = Database(synth_db_path)
+    db.connect()
+    try:
+        earliest = db.earliest_time()
+        assert earliest is not None
+        # synth fixture starts at 2026-04-27T12:00:00
+        assert earliest == dt.datetime(2026, 4, 27, 12, 0, 0)
+    finally:
+        db.close()
