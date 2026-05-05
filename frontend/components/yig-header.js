@@ -34,13 +34,15 @@ export class YigHeader extends LitElement {
     document.documentElement.dataset.theme = this.theme;
 
     this._ledInterval = setInterval(() => this._refreshLed(), 1000);
-    store.subscribe("wsConnected", () => this._refreshLed());
-    store.subscribe("lastRowTs", () => this._refreshLed());
+    this._unsubWs = store.subscribe("wsConnected", () => this._refreshLed());
+    this._unsubLastRow = store.subscribe("lastRowTs", () => this._refreshLed());
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
     if (this._ledInterval) clearInterval(this._ledInterval);
+    this._unsubWs?.();
+    this._unsubLastRow?.();
   }
 
   _refreshLed() {

@@ -28,6 +28,7 @@ export class YigPeakTrack extends LitElement {
     this._err = null;
     this._suppressRelayout = false;
     this._relayoutBound = false;
+    this._gen = 0;
   }
 
   connectedCallback() {
@@ -52,12 +53,15 @@ export class YigPeakTrack extends LitElement {
   async _reload() {
     const r = store.get("range");
     if (!r) return;
+    const gen = ++this._gen;
     try {
       const resp = await getPeakTrack(r.from, r.to, MAX_PTS);
+      if (gen !== this._gen) return;
       this._x = resp.rows.map((p) => new Date(p.t));
       this._y = resp.rows.map((p) => p.peak_freq / 1e9);
       this._draw();
     } catch (e) {
+      if (gen !== this._gen) return;
       this._err = String(e);
     }
   }
@@ -86,7 +90,7 @@ export class YigPeakTrack extends LitElement {
       autosize: true,
     });
     this._suppressRelayout = true;
-    Plotly.react(this._plotEl, data, layout, plotlyConfig).then(() => {
+    Plotly.react(this._plotEl, data, layout, plotlyConfig).finally(() => {
       if (!this._relayoutBound) {
         this._plotEl.on("plotly_relayout", (ev) => this._onRelayout(ev));
         this._relayoutBound = true;

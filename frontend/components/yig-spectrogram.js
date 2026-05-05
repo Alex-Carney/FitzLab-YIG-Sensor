@@ -129,6 +129,7 @@ export class YigSpectrogram extends LitElement {
     this._err = null;
     this._empty = false;
     this._suppressRelayout = false;  // ignore our own relayout calls
+    this._gen = 0;                   // monotonic; cancels stale _reload results
   }
 
   connectedCallback() {
@@ -159,10 +160,12 @@ export class YigSpectrogram extends LitElement {
   async _reload() {
     const range = store.get("range");
     if (!range) return;
+    const gen = ++this._gen;
     try {
       // 1. Compute the auto freq window from peak-track first (full-sweep
       //    on first fetch since we don't yet know where to clip).
       const peakResp = await getPeakTrack(range.from, range.to, MAX_ROWS);
+      if (gen !== this._gen) return;  // a newer reload superseded us
       this._peaks = peakResp.rows || [];
       const latest = store.get("latestRow");
       const autoRange = computeAutoFreqRange(this._peaks, latest);
@@ -171,11 +174,13 @@ export class YigSpectrogram extends LitElement {
       // 2. Fetch range with the freq window applied (if we have one).
       const opts = autoRange ? { freq_min_hz: autoRange[0], freq_max_hz: autoRange[1] } : {};
       const rangeResp = await getRange(range.from, range.to, MAX_ROWS, opts);
+      if (gen !== this._gen) return;
       this._rows = rangeResp.rows || [];
       this._empty = this._rows.length === 0;
       this._maybeBanner(rangeResp);
       this._scheduleDraw();
     } catch (e) {
+      if (gen !== this._gen) return;
       this._err = String(e);
     }
   }
@@ -325,8 +330,10 @@ export class YigSpectrogram extends LitElement {
     });
 
     this._suppressRelayout = true;
-    Plotly.react(this._plotEl, data, layout, plotlyConfig).then(() => {
-      // Bind manual-zoom detection once after first react
+    // Use .finally so a Plotly.react rejection doesn't strand
+    // _suppressRelayout = true forever (which would silently disable
+    // manual-zoom detection).
+    Plotly.react(this._plotEl, data, layout, plotlyConfig).finally(() => {
       if (!this._relayoutBound) {
         this._plotEl.on("plotly_relayout", (ev) => this._onRelayout(ev));
         this._relayoutBound = true;

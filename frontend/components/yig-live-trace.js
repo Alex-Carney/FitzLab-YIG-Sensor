@@ -90,7 +90,7 @@ export class YigLiveTrace extends LitElement {
     });
 
     this._suppressRelayout = true;
-    Plotly.react(this._plotEl, data, layout, plotlyConfig).then(() => {
+    Plotly.react(this._plotEl, data, layout, plotlyConfig).finally(() => {
       if (!this._relayoutBound) {
         this._plotEl.on("plotly_relayout", (ev) => this._onRelayout(ev));
         this._relayoutBound = true;
