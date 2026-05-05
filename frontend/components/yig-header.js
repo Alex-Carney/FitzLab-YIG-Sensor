@@ -88,10 +88,7 @@ export class YigHeader extends LitElement {
   render() {
     return html`
       <header class="hdr">
-        <div class="hdr__title">
-          YIG Dashboard
-          <small>spectrum_data_ovn</small>
-        </div>
+        <div class="hdr__title">YIG Dashboard</div>
         <div class="hdr__right">
           <div class="range-controls">
             ${RANGES.map((r) => html`
