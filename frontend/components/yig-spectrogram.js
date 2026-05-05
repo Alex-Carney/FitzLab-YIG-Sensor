@@ -7,6 +7,27 @@ import { computeAutoFreqRange, SNR_FLOOR_DB } from "/static/lib/auto-zoom.js";
 
 const MAX_ROWS = 600;
 
+// Plotly.js (CDN 2.35.2) ships only a small set of named colorscales — Jet
+// and Viridis are built in but Inferno is not. Define it manually as a
+// stop list. Hex values are sampled from matplotlib's canonical inferno.
+const INFERNO_SCALE = [
+  [0.000, "#000004"],
+  [0.111, "#160b39"],
+  [0.222, "#420a68"],
+  [0.333, "#6a176e"],
+  [0.444, "#932667"],
+  [0.556, "#bb3754"],
+  [0.667, "#dd513a"],
+  [0.778, "#f3771a"],
+  [0.889, "#fbb318"],
+  [1.000, "#fcffa4"],
+];
+
+function resolveColorscale(name) {
+  if (name === "Inferno") return INFERNO_SCALE;
+  return name;  // Jet / Viridis are built-in named scales in Plotly.js
+}
+
 function freqAxis(trace) {
   const { center_freq, span, n_points } = trace;
   const f0 = center_freq - span / 2;
@@ -268,7 +289,7 @@ export class YigSpectrogram extends LitElement {
     const accent = getComputedStyle(document.documentElement)
       .getPropertyValue("--c-accent").trim() || "#4ea1ff";
 
-    const colorscale = store.get("colorscale") || "Inferno";
+    const colorscale = resolveColorscale(store.get("colorscale") || "Inferno");
     const data = [
       {
         type: "heatmap",
