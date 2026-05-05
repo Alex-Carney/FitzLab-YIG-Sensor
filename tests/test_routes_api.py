@@ -203,3 +203,38 @@ async def test_range_endpoint_inverted_freq_window_is_400(app_with_session):
                 "freq_max_hz": "1e9",
             })
     assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_range_endpoint_empty_db_envelope(tmp_path, monkeypatch):
+    """On an empty DB, /api/range returns rows=[] and actual_from=None."""
+    import sqlite3
+    p = tmp_path / "empty.sqlite"
+    conn = sqlite3.connect(str(p))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute(
+        "CREATE TABLE spectra (time_created TIMESTAMP, center_freq REAL, "
+        "span REAL, rbw REAL, n_points INTEGER, powers BLOB)"
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setenv("YIG_DASHBOARD_PASSWORD", "pw")
+    monkeypatch.setenv("YIG_DASHBOARD_SECRET", "s" * 32)
+    monkeypatch.setenv("YIG_DB_PATH", str(p))
+    monkeypatch.setenv("YIG_COLLECTION_CADENCE_SEC", "1.0")
+    monkeypatch.setenv("YIG_DEV_MODE", "1")
+    from app.main import build_app
+    app = build_app()
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+            await c.post("/login", json={"password": "pw"})
+            r = await c.get("/api/range", params={
+                "from": "2026-04-27T12:00:00",
+                "to":   "2026-04-27T12:00:09",
+            })
+    assert r.status_code == 200
+    body = r.json()
+    assert body["rows"] == []
+    assert body["actual_from"] is None
