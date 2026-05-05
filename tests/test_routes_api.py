@@ -206,6 +206,23 @@ async def test_range_endpoint_inverted_freq_window_is_400(app_with_session):
 
 
 @pytest.mark.asyncio
+async def test_range_endpoint_nonfinite_freq_param_is_400(app_with_session):
+    """NaN/Inf in freq params is rejected with 400 (not 500 from a math crash)."""
+    app = app_with_session
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+            await c.post("/login", json={"password": "pw"})
+            for bad_min, bad_max in (("nan", "1e9"), ("1e9", "inf"), ("-inf", "inf")):
+                r = await c.get("/api/range", params={
+                    "from": "2026-04-27T12:00:00",
+                    "to":   "2026-04-27T12:00:09",
+                    "freq_min_hz": bad_min,
+                    "freq_max_hz": bad_max,
+                })
+                assert r.status_code == 400, f"({bad_min}, {bad_max}) should be 400"
+
+
+@pytest.mark.asyncio
 async def test_range_endpoint_empty_db_envelope(tmp_path, monkeypatch):
     """On an empty DB, /api/range returns rows=[] and actual_from=None."""
     import sqlite3

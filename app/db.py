@@ -189,6 +189,8 @@ class Database:
             return None
         center = float(row["center_freq"])
         span = float(row["span"])
+        if not (span > 0):
+            return None
         f0 = center - span / 2.0
         df = span / (n - 1)
         sweep_lo = f0
@@ -199,8 +201,11 @@ class Database:
         hi_idx = min(n - 1, int(np.floor((freq_max_hz - f0) / df)))
         if hi_idx < lo_idx:
             return None
-        powers = row["powers"][lo_idx : hi_idx + 1]
         new_n = hi_idx - lo_idx + 1
+        if new_n <= 1:
+            # single-bin slice would yield span=0 → frontend freqAxis NaN
+            return None
+        powers = row["powers"][lo_idx : hi_idx + 1]
         new_f_lo = f0 + lo_idx * df
         new_f_hi = f0 + hi_idx * df
         new_center = (new_f_lo + new_f_hi) / 2.0

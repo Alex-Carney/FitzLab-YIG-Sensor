@@ -235,3 +235,29 @@ def test_range_rows_empty_db_returns_empty_list(tmp_path):
         assert rows == []
     finally:
         db.close()
+
+
+def test_range_rows_single_bin_clip_skips_row(synth_db_path):
+    """A freq window narrower than one bin would yield span=0 / n_points=1
+    on the clipped row, which breaks the frontend axis math. The row should
+    be skipped entirely instead."""
+    db = Database(synth_db_path)
+    db.connect()
+    try:
+        sample = db.range_rows(
+            db.earliest_time(), db.earliest_time() + dt.timedelta(hours=24), max_rows=1
+        )[0]
+        center = sample["center_freq"]
+        span = sample["span"]
+        n = sample["n_points"]
+        df = span / (n - 1)
+        # Window so narrow it can't contain two bins
+        rows = db.range_rows(
+            db.earliest_time(), db.earliest_time() + dt.timedelta(hours=24),
+            max_rows=10,
+            freq_min_hz=center - df * 0.4,
+            freq_max_hz=center + df * 0.4,
+        )
+        assert rows == []
+    finally:
+        db.close()

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -88,6 +89,9 @@ async def range_endpoint(
             status_code=400,
             detail="freq_min_hz and freq_max_hz must be specified together",
         )
+    for v, name in ((freq_min_hz, "freq_min_hz"), (freq_max_hz, "freq_max_hz")):
+        if v is not None and not math.isfinite(v):
+            raise HTTPException(status_code=400, detail=f"{name} must be finite")
     if freq_min_hz is not None and freq_max_hz is not None and freq_min_hz >= freq_max_hz:
         raise HTTPException(status_code=400, detail="freq_min_hz must be < freq_max_hz")
     if max_rows > settings.api_max_rows_hard_cap:
