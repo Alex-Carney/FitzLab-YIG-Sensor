@@ -193,7 +193,7 @@ yig-app { display: block; min-height: 100vh; }
 .dash-v2 {
   display: grid;
   grid-template-columns: 1fr 320px;
-  grid-template-rows: 1fr 200px;
+  grid-template-rows: 1fr 200px 220px;
   gap: var(--s-md);
   padding: var(--s-md);
   height: calc(100vh - var(--header-h));
@@ -206,9 +206,17 @@ yig-app { display: block; min-height: 100vh; }
   box-shadow: var(--shadow-1);
   overflow: hidden;
 }
-.dash-v2 .sg   { grid-column: 1; grid-row: 1; min-height: 0; }
-.dash-v2 .side { grid-column: 2; grid-row: 1; min-height: 0; }
-.dash-v2 .live { grid-column: 1 / -1; grid-row: 2; min-height: 0; }
+.dash-v2 .sg     { grid-column: 1; grid-row: 1; min-height: 0; }
+.dash-v2 .side   { grid-column: 2; grid-row: 1; min-height: 0; }
+.dash-v2 .live   { grid-column: 1 / -1; grid-row: 2; min-height: 0; }
+.dash-v2 .trends {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-md);
+}
 
 .sidebar {
   display: grid;

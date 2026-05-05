@@ -117,12 +117,14 @@ export class YigSpectrogram extends LitElement {
     // Theme change: re-draw so line colors (read from --c-accent at draw
     // time) update too, not just background/gridline colors.
     this._unsubTheme = store.subscribe("theme", () => this._draw());
+    this._unsubColor = store.subscribe("colorscale", () => this._draw());
   }
   disconnectedCallback() {
     super.disconnectedCallback();
     this._unsubRange?.();
     this._unsubTrace?.();
     this._unsubTheme?.();
+    this._unsubColor?.();
     if (this._raf) cancelAnimationFrame(this._raf);
   }
 
@@ -266,11 +268,12 @@ export class YigSpectrogram extends LitElement {
     const accent = getComputedStyle(document.documentElement)
       .getPropertyValue("--c-accent").trim() || "#4ea1ff";
 
+    const colorscale = store.get("colorscale") || "Inferno";
     const data = [
       {
         type: "heatmap",
         x: xTimes, y: yFreqGHz, z: transpose(Z),
-        colorscale: "Viridis", hoverongaps: false,
+        colorscale, hoverongaps: false,
         hovertemplate: "%{x}<br>%{y:.6f} GHz<br>%{z:.2f} dBm<extra></extra>",
         colorbar: { title: { text: "dBm" } },
       },

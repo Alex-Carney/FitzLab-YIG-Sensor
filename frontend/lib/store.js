@@ -37,6 +37,7 @@ export const store = new Store({
   lastRowTs: null,
   banner: null,           // { type: "info"|"warn", message: string } | null
   autoFreqRange: null,    // [low, high] in Hz, or null
+  colorscale: localStorage.getItem("yig-colorscale") || "Inferno",
 });
 
 window.__yigStore = store;

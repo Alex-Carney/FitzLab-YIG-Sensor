@@ -17,6 +17,14 @@ export class YigApp extends LitElement {
         <section class="panel live">
           <yig-live-trace></yig-live-trace>
         </section>
+        <section class="trends">
+          <section class="panel">
+            <yig-peak-track></yig-peak-track>
+          </section>
+          <section class="panel">
+            <yig-snr-track></yig-snr-track>
+          </section>
+        </section>
       </main>
     `;
   }

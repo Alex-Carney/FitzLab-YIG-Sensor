@@ -10,6 +10,8 @@ const RANGES = [
   { id: "7d",  ms: 7 * 24 * 60 * 60 * 1000 },
 ];
 
+const COLORSCALES = ["Inferno", "Jet", "Viridis"];
+
 export class YigHeader extends LitElement {
   createRenderRoot() { return this; }
 
@@ -18,12 +20,14 @@ export class YigHeader extends LitElement {
     ledClass: { state: true },
     ledLabel: { state: true },
     theme: { state: true },
+    colorscale: { state: true },
   };
 
   constructor() {
     super();
     this.activeRange = "5m";
     this.theme = store.get("theme") || "dark";
+    this.colorscale = store.get("colorscale") || "Inferno";
     this.ledClass = "led__dot--bad";
     this.ledLabel = "offline";
     this._setRange("5m");
@@ -80,6 +84,12 @@ export class YigHeader extends LitElement {
     store.set("theme", this.theme);
   }
 
+  _setColorscale(name) {
+    this.colorscale = name;
+    localStorage.setItem("yig-colorscale", name);
+    store.set("colorscale", name);
+  }
+
   async _logout() {
     await fetch("/logout", { method: "POST", credentials: "same-origin" });
     window.location.href = "/login";
@@ -95,6 +105,13 @@ export class YigHeader extends LitElement {
               <button class="range-btn"
                 data-active=${this.activeRange === r.id ? "1" : "0"}
                 @click=${() => this._setRange(r.id)}>${r.id}</button>
+            `)}
+          </div>
+          <div class="range-controls" title="Spectrogram colorscale">
+            ${COLORSCALES.map((c) => html`
+              <button class="range-btn"
+                data-active=${this.colorscale === c ? "1" : "0"}
+                @click=${() => this._setColorscale(c)}>${c}</button>
             `)}
           </div>
           <span class="led">
