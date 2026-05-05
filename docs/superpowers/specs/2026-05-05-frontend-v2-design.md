@@ -311,8 +311,8 @@ Each plot component subscribes to `store.theme` in its `connectedCallback()`. Th
 ### New backend tests (`tests/test_routes_api.py` additions)
 
 - `/api/range` with `freq_min_hz` and `freq_max_hz` returns rows with `n_points`, `center_freq`, `span` recomputed for the clipped window, and `len(powers)` matches the new `n_points`.
-- `/api/range` with only `freq_min_hz` (no `freq_max_hz`) returns 422 (must specify both or neither).
-- `/api/range` with `freq_min_hz > freq_max_hz` returns 400.
+- `/api/range` with only `freq_min_hz` (no `freq_max_hz`) returns 400 (must specify both or neither).
+- `/api/range` with `freq_min_hz >= freq_max_hz` returns 400.
 - `/api/range` response includes `actual_from`, `actual_to` keys.
 - `/api/range` with `from` earlier than earliest data returns `actual_from = earliest_in_db.isoformat()`.
 - `/api/range` against empty DB returns `rows: [], actual_from: null`.
