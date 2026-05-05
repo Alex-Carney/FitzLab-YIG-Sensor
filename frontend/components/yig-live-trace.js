@@ -38,7 +38,14 @@ export class YigLiveTrace extends LitElement {
   async _init() {
     try {
       const r = await getSnapshot();
-      if (r.data) { this._lastTrace = r.data; this._draw(); }
+      if (r.data) {
+        this._lastTrace = r.data;
+        // Seed latestRow so sidebar KPI tiles populate even when no live
+        // WS ticks are flowing (e.g., tracker not running yet).
+        store.set("latestRow", r.data);
+        store.set("lastRowTs", new Date(r.data.t));
+        this._draw();
+      }
     } catch (e) {
       this._err = String(e);
     }
