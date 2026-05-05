@@ -140,6 +140,9 @@ class Database:
         """
         assert self._conn is not None
 
+        if (freq_min_hz is None) != (freq_max_hz is None):
+            raise ValueError("freq_min_hz and freq_max_hz must be specified together")
+
         total = self._conn.execute(
             "SELECT count(*) FROM spectra WHERE time_created BETWEEN ? AND ?",
             (t_from, t_to),
