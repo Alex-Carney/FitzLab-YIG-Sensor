@@ -1,5 +1,6 @@
 // Convert CSS custom properties into Plotly layout overrides.
-// Components call plotlyLayout(extra) before rendering.
+// plotlyLayout(extra) is used for initial draws; themeColors() / applyTheme()
+// keep existing figures in sync when the user toggles theme.
 
 function _v(name, fallback = "") {
   return getComputedStyle(document.documentElement)
@@ -7,33 +8,58 @@ function _v(name, fallback = "") {
     .trim() || fallback;
 }
 
+export function themeColors() {
+  const text = _v("--c-text-1", "#a4adb7");
+  const grid = _v("--c-border", "#232a31");
+  const bg1  = _v("--c-bg-1",   "#12161a");
+  return {
+    paper_bgcolor: bg1,
+    plot_bgcolor: bg1,
+    "font.color": text,
+    "xaxis.gridcolor": grid,
+    "xaxis.zerolinecolor": grid,
+    "xaxis.linecolor": grid,
+    "xaxis.tickcolor": grid,
+    "xaxis.color": text,
+    "yaxis.gridcolor": grid,
+    "yaxis.zerolinecolor": grid,
+    "yaxis.linecolor": grid,
+    "yaxis.tickcolor": grid,
+    "yaxis.color": text,
+  };
+}
+
+export function applyTheme(plotEl) {
+  if (!plotEl || !window.Plotly) return;
+  Plotly.relayout(plotEl, themeColors());
+}
+
 export function plotlyLayout(extra = {}) {
   const text = _v("--c-text-1", "#a4adb7");
   const grid = _v("--c-border", "#232a31");
-  const bg0  = _v("--c-bg-1",   "#12161a");
+  const bg1  = _v("--c-bg-1",   "#12161a");
   const accent = _v("--c-accent", "#4ea1ff");
 
   const base = {
-    paper_bgcolor: bg0,
-    plot_bgcolor: bg0,
-    font: { family: "Inter, system-ui, sans-serif", color: text, size: 12 },
-    margin: { l: 56, r: 28, t: 24, b: 40 },
+    paper_bgcolor: bg1,
+    plot_bgcolor: bg1,
+    font: { family: "Inter, system-ui, sans-serif", color: text, size: 13 },
+    margin: { l: 64, r: 28, t: 24, b: 48 },
     xaxis: {
-      gridcolor: grid,
-      zerolinecolor: grid,
-      linecolor: grid,
-      tickcolor: grid,
-      color: text,
+      gridcolor: grid, zerolinecolor: grid, linecolor: grid,
+      tickcolor: grid, color: text,
+      title: { font: { size: 14 } },
+      tickfont: { size: 13 },
     },
     yaxis: {
-      gridcolor: grid,
-      zerolinecolor: grid,
-      linecolor: grid,
-      tickcolor: grid,
-      color: text,
+      gridcolor: grid, zerolinecolor: grid, linecolor: grid,
+      tickcolor: grid, color: text,
+      title: { font: { size: 14 } },
+      tickfont: { size: 13 },
     },
     colorway: [accent],
     showlegend: false,
+    uirevision: 0,  // bumped externally to drop user state
   };
 
   return _deepMerge(base, extra);

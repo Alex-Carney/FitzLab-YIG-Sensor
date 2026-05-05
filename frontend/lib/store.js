@@ -35,6 +35,9 @@ export const store = new Store({
   theme: localStorage.getItem("yig-theme") || "dark",
   wsConnected: false,
   lastRowTs: null,
+  banner: null,           // { type: "info"|"warn", message: string } | null
+  autoFreqRange: null,    // [low, high] in Hz, or null
+  colorscale: localStorage.getItem("yig-colorscale") || "Inferno",
 });
 
 window.__yigStore = store;

@@ -105,6 +105,14 @@ class Database:
         assert self._conn is not None
         return self._conn.execute("SELECT count(*) FROM spectra").fetchone()[0]
 
+    def earliest_time(self) -> Optional[dt.datetime]:
+        """Return the earliest time_created in the table, or None if empty."""
+        assert self._conn is not None
+        row = self._conn.execute(
+            "SELECT time_created FROM spectra ORDER BY time_created ASC LIMIT 1"
+        ).fetchone()
+        return row[0] if row else None
+
     def rows_after(self, after: dt.datetime, limit: int = 200) -> list[dict]:
         """Rows strictly newer than `after`, ascending, capped at `limit`."""
         assert self._conn is not None
@@ -120,9 +128,20 @@ class Database:
         t_from: dt.datetime,
         t_to: dt.datetime,
         max_rows: int = 2000,
+        freq_min_hz: Optional[float] = None,
+        freq_max_hz: Optional[float] = None,
     ) -> list[dict]:
-        """Full traces between t_from and t_to (inclusive), stride-decimated to <=max_rows."""
+        """Full traces between t_from and t_to, stride-decimated to <=max_rows.
+
+        If freq_min_hz/freq_max_hz are both provided, each row's powers BLOB is
+        clipped to the [freq_min_hz, freq_max_hz] window and n_points/center_freq/
+        span are recomputed for the clipped slice. Rows whose sweep doesn't
+        overlap the freq window are skipped.
+        """
         assert self._conn is not None
+
+        if (freq_min_hz is None) != (freq_max_hz is None):
+            raise ValueError("freq_min_hz and freq_max_hz must be specified together")
 
         total = self._conn.execute(
             "SELECT count(*) FROM spectra WHERE time_created BETWEEN ? AND ?",
@@ -145,7 +164,60 @@ class Database:
             """,
             (t_from, t_to, stride),
         ).fetchall()
-        return [self._row_to_dict(r, _TRACE_COLS) for r in rows]
+
+        out: list[dict] = []
+        do_clip = freq_min_hz is not None and freq_max_hz is not None
+        for row in rows:
+            d = self._row_to_dict(row, _TRACE_COLS)
+            if do_clip:
+                clipped = self._clip_row_to_freq(d, freq_min_hz, freq_max_hz)
+                if clipped is None:
+                    continue
+                out.append(clipped)
+            else:
+                out.append(d)
+        return out
+
+    @staticmethod
+    def _clip_row_to_freq(
+        row: dict, freq_min_hz: float, freq_max_hz: float
+    ) -> Optional[dict]:
+        """Slice row['powers'] to the [freq_min_hz, freq_max_hz] window and
+        recompute n_points/center_freq/span. Returns None if no overlap."""
+        n = int(row["n_points"])
+        if n <= 1:
+            return None
+        center = float(row["center_freq"])
+        span = float(row["span"])
+        if not (span > 0):
+            return None
+        f0 = center - span / 2.0
+        df = span / (n - 1)
+        sweep_lo = f0
+        sweep_hi = f0 + (n - 1) * df
+        if freq_max_hz < sweep_lo or freq_min_hz > sweep_hi:
+            return None
+        lo_idx = max(0, int(np.ceil((freq_min_hz - f0) / df)))
+        hi_idx = min(n - 1, int(np.floor((freq_max_hz - f0) / df)))
+        if hi_idx < lo_idx:
+            return None
+        new_n = hi_idx - lo_idx + 1
+        if new_n <= 1:
+            # single-bin slice would yield span=0 → frontend freqAxis NaN
+            return None
+        powers = row["powers"][lo_idx : hi_idx + 1]
+        new_f_lo = f0 + lo_idx * df
+        new_f_hi = f0 + hi_idx * df
+        new_center = (new_f_lo + new_f_hi) / 2.0
+        new_span = new_f_hi - new_f_lo
+        return {
+            "time_created": row["time_created"],
+            "center_freq": new_center,
+            "span": new_span,
+            "rbw": row["rbw"],
+            "n_points": new_n,
+            "powers": powers,
+        }
 
     def peak_track_range(
         self,

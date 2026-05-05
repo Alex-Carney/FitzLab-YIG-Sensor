@@ -27,12 +27,17 @@ export async function getSnapshot() {
   return getJSON("/api/snapshot");
 }
 
-export async function getRange(from, to, max_rows = 2000) {
-  const qs = new URLSearchParams({
+export async function getRange(from, to, max_rows = 600, opts = {}) {
+  const params = {
     from: isoLocal(from),
     to: isoLocal(to),
     max_rows: String(max_rows),
-  });
+  };
+  if (opts.freq_min_hz != null && opts.freq_max_hz != null) {
+    params.freq_min_hz = String(opts.freq_min_hz);
+    params.freq_max_hz = String(opts.freq_max_hz);
+  }
+  const qs = new URLSearchParams(params);
   return getJSON(`/api/range?${qs}`);
 }
 
