@@ -302,9 +302,9 @@ export function applyTheme(plotEl) {
 }
 ```
 
-Each plot component subscribes to `store.theme` in its `connectedCallback()` and calls `applyTheme(this._plotEl)` on change. The header's existing `_toggleTheme()` already calls `store.set("theme", …)` — no change needed there.
+Each plot component subscribes to `store.theme` in its `connectedCallback()`. The handler calls `this._draw()` (a full re-render) rather than `applyTheme()` because trace-level colors (peak-overlay line, default colorway) are read at draw time from CSS variables and won't refresh from a `Plotly.relayout` alone. `applyTheme()` is exported anyway as the lighter-weight primitive — it correctly handles the layout-only refresh and is the right tool for any future component whose traces don't depend on theme variables. The header's existing `_toggleTheme()` already calls `store.set("theme", …)` — no change needed there.
 
-`plotlyLayout()` continues to bake colors into the initial layout for the first `react()` call. The subscription handles every subsequent toggle.
+`plotlyLayout()` continues to bake colors into the initial layout for the first `react()` call. The theme subscription handles every subsequent toggle.
 
 ## Testing
 
