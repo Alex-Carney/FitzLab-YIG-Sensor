@@ -149,3 +149,89 @@ def test_earliest_time_with_rows(synth_db_path):
         assert earliest == dt.datetime(2026, 4, 27, 12, 0, 0)
     finally:
         db.close()
+
+
+def test_range_rows_no_freq_clipping_unchanged(synth_db_path):
+    """range_rows with no freq params behaves exactly as before."""
+    db = Database(synth_db_path)
+    db.connect()
+    try:
+        earliest = db.earliest_time()
+        rows = db.range_rows(earliest, earliest + dt.timedelta(hours=24), max_rows=50)
+        assert len(rows) > 0
+        for r in rows:
+            assert r["n_points"] > 0
+            assert len(r["powers"]) == r["n_points"]
+    finally:
+        db.close()
+
+
+def test_range_rows_clips_to_freq_window(synth_db_path):
+    """When freq window is narrower than sweep, rows return clipped powers
+    with recomputed n_points/center_freq/span."""
+    db = Database(synth_db_path)
+    db.connect()
+    try:
+        earliest = db.earliest_time()
+        sample = db.range_rows(earliest, earliest + dt.timedelta(hours=24), max_rows=1)[0]
+        orig_center = sample["center_freq"]
+        orig_span = sample["span"]
+        orig_npts = sample["n_points"]
+        # Clip to the middle 20% of the sweep
+        f_lo = orig_center - orig_span * 0.1
+        f_hi = orig_center + orig_span * 0.1
+        rows = db.range_rows(
+            earliest, earliest + dt.timedelta(hours=24), max_rows=50,
+            freq_min_hz=f_lo, freq_max_hz=f_hi,
+        )
+        assert len(rows) > 0
+        for r in rows:
+            assert r["n_points"] < orig_npts
+            assert r["n_points"] > 0
+            assert len(r["powers"]) == r["n_points"]
+            # Reconstructed axis must lie within [f_lo, f_hi]
+            f0 = r["center_freq"] - r["span"] / 2
+            f1 = r["center_freq"] + r["span"] / 2
+            assert f0 >= f_lo - 1.0  # allow 1 Hz rounding tolerance
+            assert f1 <= f_hi + 1.0
+    finally:
+        db.close()
+
+
+def test_range_rows_skips_rows_outside_freq_window(synth_db_path):
+    """Rows whose sweep doesn't intersect the freq window are dropped."""
+    db = Database(synth_db_path)
+    db.connect()
+    try:
+        earliest = db.earliest_time()
+        rows = db.range_rows(
+            earliest, earliest + dt.timedelta(hours=24), max_rows=50,
+            freq_min_hz=1.0e15, freq_max_hz=1.0e15 + 1e6,
+        )
+        assert rows == []
+    finally:
+        db.close()
+
+
+def test_range_rows_empty_db_returns_empty_list(tmp_path):
+    """range_rows on an empty DB returns []."""
+    import sqlite3
+    p = tmp_path / "empty.sqlite"
+    conn = sqlite3.connect(str(p))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute(
+        "CREATE TABLE spectra (time_created TIMESTAMP, center_freq REAL, "
+        "span REAL, rbw REAL, n_points INTEGER, powers BLOB)"
+    )
+    conn.commit()
+    conn.close()
+
+    db = Database(p)
+    db.connect()
+    try:
+        rows = db.range_rows(
+            dt.datetime(2026, 1, 1), dt.datetime(2026, 12, 31), max_rows=10
+        )
+        assert rows == []
+    finally:
+        db.close()
